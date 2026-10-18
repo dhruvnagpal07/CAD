@@ -1,57 +1,630 @@
-import * as THREE from 'three';
-import {OrbitControls} from 'three/examples/jsm/controls/OrbitControls.js';
-import {STLLoader} from 'three/examples/jsm/loaders/STLLoader.js';
-import {OBJLoader} from 'three/examples/jsm/loaders/OBJLoader.js';
-import {GLTFLoader} from 'three/examples/jsm/loaders/GLTFLoader.js';
-import {STLExporter} from 'three/examples/jsm/exporters/STLExporter.js';
-import {createIcons, icons} from 'lucide';
-import './style.css';
-const icon=(name:string)=>`<i data-lucide="${name}"></i>`;
-const app=document.querySelector<HTMLDivElement>('#app')!;
-app.innerHTML=`
-<header><a class="brand" href="#">${icon('layers-3')} forma<span> / </span><small>Workspace</small></a><div class="project-title"><span class="project-dot"></span><input id="project-name" value="Mounting bracket assembly" aria-label="Project name">${icon('chevron-down')}<span class="pill">DRAFT</span></div><div class="header-right"><span id="save-state">${icon('cloud-check')} All changes saved</span><button id="save" class="plain">${icon('save')}</button><button id="export" class="dark">${icon('upload')} Export</button><div class="avatar">DN</div></div></header>
-<nav class="workspace-nav"><div class="workspace-switch">${icon('box')} Design ${icon('chevron-down')}</div><button class="tab active" data-mode="solid">Solid</button><button class="tab" data-mode="assembly">Assembly</button><span class="nav-spacer"></span><button class="plain" id="undo" title="Undo">${icon('undo-2')}</button><button class="plain" id="redo" title="Redo">${icon('redo-2')}</button><span class="divider"></span><button class="plain" id="help">${icon('circle-help')}</button></nav>
-<div class="toolbar"><div class="toolgroup"><button data-action="sketch">${icon('square-pen')}<span>Create sketch</span></button></div><div class="toolgroup"><button data-action="box">${icon('box')}<span>Box</span></button><button data-action="cylinder">${icon('cylinder')}<span>Cylinder</span></button><button data-action="extrude">${icon('arrow-up-from-line')}<span>Extrude</span></button><button data-action="fillet">${icon('radius')}<span>Fillet</span></button><label>Create</label></div><div class="toolgroup"><button data-action="move">${icon('move-3d')}<span>Move</span></button><button data-action="duplicate">${icon('copy')}<span>Duplicate</span></button><button data-action="delete">${icon('trash-2')}<span>Delete</span></button><label>Modify</label></div><div class="toolgroup"><button data-action="joint">${icon('link')}<span>Rigid group</span></button><label>Assemble</label></div><div class="toolgroup"><button id="import">${icon('download')}<span>Import model</span></button><button id="mcmaster">${icon('package-search')}<span>McMaster-Carr ${icon('arrow-up-right')}</span></button><label>Insert</label></div><div class="toolbar-end">${icon('mouse-pointer-2')} Select ${icon('chevron-down')}</div></div>
-<main><aside class="browser"><div class="panel-title">BROWSER <button class="plain" id="collapse">${icon('panel-left-close')}</button></div><div class="tree-project">${icon('chevron-down')}${icon('component')} <strong id="tree-title">Mounting bracket assembly</strong></div><div class="tree-row muted">${icon('chevron-right')}${icon('scan')} Origin <span class="tree-end">${icon('eye-off')}</span></div><div class="tree-row muted">${icon('chevron-right')}${icon('folder')} Sketches <span class="count">0</span></div><div class="tree-row">${icon('chevron-down')}${icon('boxes')} Components <span class="count" id="part-count"></span></div><div id="parts"></div><button class="add-component" data-action="box">${icon('plus')} Add component</button><div class="browser-bottom"><span class="green-dot"></span> Local workspace <span>mm</span></div></aside>
-<section class="viewport"><div class="viewport-heading"><span class="view-label">${icon('box')} Assembly view</span><span class="view-sub">Perspective · Shaded with edges</span></div><div id="canvas"></div><div class="view-cube"><button id="top-view">TOP</button><button id="home-view">FRONT</button><span>RIGHT</span></div><div class="canvas-caption"><span class="green-dot"></span><span id="mode-caption">SOLID MODELING</span></div><div class="view-controls"><button id="home" title="Home view">${icon('house')}</button><span></span><button id="fit" title="Fit model">${icon('scan')}</button><button id="grid" title="Toggle grid">${icon('grid-3x3')}</button><button id="wire" title="Toggle wireframe">${icon('box')}</button><span></span><span class="zoom-label">1:1</span><button id="settings" title="Toggle properties">${icon('sliders-horizontal')}</button></div><div class="axis"><span class="az">Z</span><span class="ay">Y</span><span class="ax">X</span></div></section>
-<aside class="properties"><div class="panel-title">PROPERTIES ${icon('sliders-horizontal')}</div><div id="inspector"></div><div class="tip">${icon('lightbulb')}<div><strong>A place for every part.</strong><p>Build components independently, then position them together in your assembly.</p></div></div></aside></main>
-<footer><div class="history-controls"><button id="history-start">${icon('skip-back')}</button><button id="history-end">${icon('skip-forward')}</button><span></span></div><div class="timeline" id="timeline"></div><span class="history-label">Design history</span><button id="timeline-help">${icon('circle-help')}</button></footer><div class="statusbar"><span id="status">Ready</span><span>Orbit: drag · Pan: right drag · Zoom: scroll <b>Units: mm</b></span></div><input type="file" id="file" accept=".stl,.obj,.glb" hidden><dialog id="dialog"></dialog><div id="toast"></div>`;
-createIcons({icons});
-const scene=new THREE.Scene();scene.background=new THREE.Color('#f4f5f7');
-const camera=new THREE.PerspectiveCamera(36,1,.1,10000);camera.position.set(190,145,210);
-const renderer=new THREE.WebGLRenderer({antialias:true});renderer.setPixelRatio(Math.min(devicePixelRatio,2));renderer.shadowMap.enabled=true;renderer.shadowMap.type=THREE.PCFSoftShadowMap;renderer.outputColorSpace=THREE.SRGBColorSpace;
-const host=document.querySelector<HTMLDivElement>('#canvas')!;host.append(renderer.domElement);
-const controls=new OrbitControls(camera,renderer.domElement);controls.target.set(0,20,0);controls.enableDamping=true;
-scene.add(new THREE.HemisphereLight(0xffffff,0x8b96a5,2.5));const sun=new THREE.DirectionalLight(0xffffff,3);sun.position.set(80,160,90);scene.add(sun);const fill=new THREE.DirectionalLight(0xffffff,1);fill.position.set(-100,40,-70);scene.add(fill);
-const grid=new THREE.GridHelper(600,60,0xd2d7df,0xe4e7ec);grid.position.y=-.1;scene.add(grid);
-const root=new THREE.Group();scene.add(root);
-type Part={id:string;name:string;type:string;color:string;dims:number[];position:number[];visible:boolean;geometry?:THREE.BufferGeometry;group?:string};
-let parts:Part[]=[];let selected='';let history:string[]=[];let future:string[]=[];let meshes=new Map<string,THREE.Mesh>();let events:string[]=[];
-const initial:Part[]=[{id:'base',name:'Base plate',type:'box',color:'#637e9b',dims:[100,8,72],position:[0,4,0],visible:true},{id:'bracket',name:'Upright bracket',type:'bracket',color:'#7892ad',dims:[100,65,8],position:[0,8,-28],visible:true},{id:'rib',name:'Support rib',type:'rib',color:'#6f89a4',dims:[28,40,6],position:[0,8,-24],visible:true},...[-34,34].flatMap((x,i)=>[{id:`bolt${i}`,name:`Socket screw ${i+1}`,type:'cylinder',color:'#39434e',dims:[5,8,5],position:[x,12,20],visible:true}])];
-function geometry(p:Part){if(p.geometry)return p.geometry;if(p.type==='cylinder')return new THREE.CylinderGeometry(p.dims[0],p.dims[0],p.dims[1],48);if(p.type==='bracket'){const s=new THREE.Shape();s.moveTo(-50,0);s.lineTo(50,0);s.lineTo(50,54);s.quadraticCurveTo(50,65,39,65);s.lineTo(-39,65);s.quadraticCurveTo(-50,65,-50,54);s.closePath();for(const x of [-32,32]){const hole=new THREE.Path();hole.absellipse(x,43,6,6,0,Math.PI*2,true);s.holes.push(hole)}return new THREE.ExtrudeGeometry(s,{depth:8,bevelEnabled:true,bevelSize:.65,bevelThickness:.65,bevelSegments:3,steps:1})}if(p.type==='rib'){const s=new THREE.Shape();s.moveTo(0,0);s.lineTo(0,40);s.lineTo(28,0);s.closePath();const g=new THREE.ExtrudeGeometry(s,{depth:6,bevelEnabled:false});g.rotateY(-Math.PI/2);g.translate(3,0,0);return g}return new THREE.BoxGeometry(...p.dims as [number,number,number]);}
-function rebuild(){for(const m of meshes.values()){root.remove(m);if(!parts.some(p=>p.geometry===m.geometry))m.geometry.dispose();(m.material as THREE.Material).dispose();for(const child of m.children){if(child instanceof THREE.LineSegments){child.geometry.dispose();(child.material as THREE.Material).dispose()}}}meshes.clear();for(const p of parts){const g=geometry(p);const m=new THREE.Mesh(g,new THREE.MeshStandardMaterial({color:p.color,metalness:.48,roughness:.36,emissive:p.id===selected?0x122d48:0x000000}));m.position.fromArray(p.position);m.visible=p.visible;m.userData.id=p.id;const edges=new THREE.LineSegments(new THREE.EdgesGeometry(g,25),new THREE.LineBasicMaterial({color:p.id===selected?0x2786d9:0x31475c,transparent:true,opacity:p.id===selected?.85:.35}));m.add(edges);root.add(m);meshes.set(p.id,m)}renderPanels();}
-function escape(s:string){return s.replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]!))}
-function renderPanels(){document.querySelector('#part-count')!.textContent=String(parts.length);document.querySelector('#parts')!.innerHTML=parts.map(p=>`<div class="part ${p.id===selected?'selected':''}" data-id="${p.id}"><button class="visibility" data-visible="${p.id}" title="Toggle visibility">${icon(p.visible?'eye':'eye-off')}</button>${icon(p.type==='cylinder'?'bolt':'box')}<span>${escape(p.name)}</span>${p.group?icon('link'):''}</div>`).join('');const p=parts.find(p=>p.id===selected);document.querySelector('#inspector')!.innerHTML=p?`<div class="selected-type">COMPONENT</div><h2>${escape(p.name)}</h2><div class="property-section"><h3>General</h3><label>Name<input id="part-name" value="${escape(p.name)}"></label><label>Material<select id="material"><option>Aluminum · Satin</option><option>Steel · Brushed</option><option>Plastic · Matte</option></select></label><label>Appearance<input type="color" id="color" value="${p.color}"></label></div><div class="property-section"><h3>Dimensions <span>mm</span></h3>${(p.type==='cylinder'?['Radius','Height']:['Width','Height','Depth']).map((s,i)=>`<label>${s}<div class="unit-input"><input type="number" min="0.1" max="10000" step="1" data-dim="${i}" value="${p.dims[i]}"><span>mm</span></div></label>`).join('')}</div><div class="property-section"><h3>Position <span>mm</span></h3>${['X','Y','Z'].map((s,i)=>`<label><span class="coord coord-${i}">${s}</span><div class="unit-input"><input type="number" step="1" data-pos="${i}" value="${p.position[i]}"><span>mm</span></div></label>`).join('')}</div><div class="selection-note">${icon('mouse-pointer-2')} 1 component selected</div>`:`<div class="assembly-symbol">${icon('component')}</div><h2>Assembly overview</h2><p class="overview-text">Your next idea starts here.</p><div class="assembly-stats"><div><strong>${parts.length}</strong><span>Components</span></div><div><strong>${new Set(parts.filter(p=>p.group).map(p=>p.group)).size}</strong><span>Rigid groups</span></div></div><div class="property-section"><h3>Document</h3><label>Workspace<span>Design</span></label><label>Units<span>Millimeters</span></label><label>View<span>Perspective</span></label></div><div class="empty-selection">${icon('mouse-pointer-2')}<p>Select a component to view and edit its properties.</p></div>`;document.querySelector('#timeline')!.innerHTML=events.map((e,i)=>`<button title="${escape(e)}" class="history-item ${i===events.length-1?'latest':''}">${icon(e.includes('Import')?'download':e.includes('Move')?'move-3d':'box')}</button>`).join('')+'<span class="playhead"></span>';createIcons({icons});bindProperties();}
-function snapshot(){return JSON.stringify(parts.map(p=>({...p,geometry:p.geometry?.toJSON()})))}
-function restore(value:string):Part[]{return JSON.parse(value).map((p:Part & {geometry?:any})=>({...p,geometry:p.geometry?new THREE.BufferGeometryLoader().parse(p.geometry):undefined}))}
-function checkpoint(){history.push(snapshot());future=[];}
-function changed(label:string){events.push(label);rebuild();persist();document.querySelector('#status')!.textContent=label;}
-function persist(){try{localStorage.setItem('forma-project',JSON.stringify({parts:parts.filter(p=>!p.geometry),title:(document.querySelector('#project-name') as HTMLInputElement).value,events}));}catch{toast('Browser storage is full. Export your parts to keep a copy.')}}
-function toast(message:string){const el=document.querySelector('#toast')!;el.textContent=message;el.classList.add('show');setTimeout(()=>el.classList.remove('show'),4000)}
-function bindProperties(){const p=parts.find(p=>p.id===selected);if(!p)return;document.querySelector('#part-name')?.addEventListener('change',e=>{checkpoint();p.name=(e.target as HTMLInputElement).value;changed('Rename component')});document.querySelector('#color')?.addEventListener('change',e=>{checkpoint();p.color=(e.target as HTMLInputElement).value;changed('Change appearance')});document.querySelector('#material')?.addEventListener('change',e=>{checkpoint();p.color=['#7892ad','#a1a7ad','#d8b68c'][(e.target as HTMLSelectElement).selectedIndex];changed('Change material')});document.querySelectorAll<HTMLInputElement>('[data-dim],[data-pos]').forEach(el=>el.onchange=()=>{const value=Number(el.value);if(!Number.isFinite(value)||(el.dataset.dim!==undefined&&value<=0)){renderPanels();return}if((p.geometry||['bracket','rib'].includes(p.type))&&el.dataset.dim!==undefined){toast('This component has fixed geometry. Create a box or cylinder for editable dimensions.');renderPanels();return}checkpoint();if(el.dataset.dim!==undefined)p.dims[Number(el.dataset.dim)]=value;else p.position[Number(el.dataset.pos)]=value;changed(el.dataset.dim!==undefined?'Resize component':'Move component')})}
-function add(type:string){checkpoint();const id=crypto.randomUUID();parts.push({id,name:`${type==='box'?'Box':'Cylinder'} ${parts.length+1}`,type,color:'#94a8be',dims:type==='box'?[40,30,40]:[12,30,12],position:[70,15,0],visible:true});selected=id;changed(`Create ${type}`)}
-function modal(title:string,body:string,action?:()=>void){const d=document.querySelector<HTMLDialogElement>('#dialog')!;d.innerHTML=`<form method="dialog"><div class="dialog-heading"><h2>${title}</h2><button class="plain">${icon('x')}</button></div>${body}<div class="dialog-footer"><button class="secondary">Close</button>${action?'<button type="button" id="dialog-action" class="dark">Create component</button>':''}</div></form>`;createIcons({icons});d.showModal();document.querySelector('#dialog-action')?.addEventListener('click',()=>{action?.();d.close()})}
-app.addEventListener('click',e=>{const t=e.target as Element;const visibility=t.closest<HTMLElement>('[data-visible]');if(visibility){checkpoint();const p=parts.find(p=>p.id===visibility.dataset.visible)!;p.visible=!p.visible;changed('Toggle visibility');return}const row=t.closest<HTMLElement>('[data-id]');if(row){selected=row.dataset.id!;rebuild();return}const action=t.closest<HTMLElement>('[data-action]')?.dataset.action;if(!action)return;const p=parts.find(p=>p.id===selected);if(['box','cylinder'].includes(action)){add(action);return}if(action==='sketch'){modal('Create a rectangular profile','<p>Set a rectangle on the horizontal plane and extrude it into a new component.</p><div class="sketch-fields"><label>Width (mm)<input id="sk-width" type="number" value="40" min="1"></label><label>Depth (mm)<input id="sk-depth" type="number" value="30" min="1"></label><label>Extrusion (mm)<input id="sk-height" type="number" value="10" min="1"></label></div>',()=>{const dims=['sk-width','sk-height','sk-depth'].map(id=>Math.max(.1,Number((document.getElementById(id) as HTMLInputElement).value)||10));checkpoint();selected=crypto.randomUUID();parts.push({id:selected,name:'Extruded rectangle',type:'box',dims,color:'#7892ad',position:[70,dims[1]/2,0],visible:true});changed('Extrude rectangle')});return}if(action==='joint'){checkpoint();const group=crypto.randomUUID();parts.filter(p=>p.visible).forEach(p=>p.group=group);changed('Rigid group');toast('Visible components grouped. Position edits remain component-local.');return}if(!p){toast('Select a component first.');return}if(action==='delete'){checkpoint();parts=parts.filter(q=>q.id!==p.id);selected='';changed('Delete component')}if(action==='duplicate'){if(p.geometry){toast('Export and reimport this mesh to duplicate it.');return}checkpoint();const copy={...p,id:crypto.randomUUID(),name:p.name+' copy',dims:[...p.dims],position:[p.position[0]+25,...p.position.slice(1)]};parts.push(copy);selected=copy.id;changed('Duplicate component')}if(action==='move'){document.querySelector<HTMLInputElement>('[data-pos="0"]')?.focus();toast('Edit X, Y, and Z in the Properties panel.')}if(action==='extrude'){if(p.type!=='box'){toast('Use Create sketch to extrude a rectangular profile.');return}document.querySelector<HTMLInputElement>('[data-dim="1"]')?.focus();toast('Set the extrusion height in Properties.')}if(action==='fillet')toast('Edge fillets require a solid CAD kernel and are not available in this prototype.');});
-const raycaster=new THREE.Raycaster();let down=[0,0];renderer.domElement.addEventListener('pointerdown',e=>down=[e.clientX,e.clientY]);renderer.domElement.addEventListener('pointerup',e=>{if(Math.hypot(e.clientX-down[0],e.clientY-down[1])>4)return;const r=renderer.domElement.getBoundingClientRect();raycaster.setFromCamera(new THREE.Vector2((e.clientX-r.left)/r.width*2-1,-(e.clientY-r.top)/r.height*2+1),camera);const hits=raycaster.intersectObjects([...meshes.values()].filter(m=>m.visible),false);selected=hits[0]?.object.userData.id||'';rebuild()});
-function home(){camera.position.set(190,145,210);controls.target.set(0,20,0);controls.update()}
-function fit(){const b=new THREE.Box3().setFromObject(root);if(b.isEmpty())return;const center=b.getCenter(new THREE.Vector3());const size=b.getSize(new THREE.Vector3()).length();controls.target.copy(center);camera.position.copy(center).add(new THREE.Vector3(1,.8,1).normalize().multiplyScalar(size*1.6));camera.far=Math.max(10000,size*10);camera.updateProjectionMatrix();controls.update()}
-const on=(id:string,fn:()=>void)=>document.getElementById(id)!.addEventListener('click',fn);
-on('home',home);on('home-view',()=>{camera.position.set(0,35,240);controls.target.set(0,30,0)});on('top-view',()=>{camera.position.set(0,260,.01);controls.target.set(0,0,0)});on('fit',fit);on('grid',()=>grid.visible=!grid.visible);on('wire',()=>meshes.forEach(m=>{const mat=m.material as THREE.MeshStandardMaterial;mat.wireframe=!mat.wireframe}));on('save',()=>{persist();toast('Project saved in this browser. Imported mesh files must be reimported after reload.');});on('undo',()=>{if(!history.length)return;future.push(snapshot());parts=restore(history.pop()!);selected='';events.pop();rebuild();persist()});on('redo',()=>{if(!future.length)return;history.push(snapshot());parts=restore(future.pop()!);changed('Redo')});on('history-start',()=>document.getElementById('undo')!.click());on('history-end',()=>document.getElementById('redo')!.click());on('collapse',()=>document.querySelector('.browser')!.classList.toggle('compact'));on('settings',()=>document.querySelector('.properties')!.classList.toggle('hidden'));
-on('export',()=>{const result=new STLExporter().parse(root,{binary:true});const blob=new Blob([new Uint8Array(result.buffer as ArrayBuffer)],{type:'model/stl'});const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download='forma-assembly.stl';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);toast('Assembly exported as STL (millimeters).')});
-on('import',()=>document.getElementById('file')!.click());on('mcmaster',()=>modal('Bring in McMaster-Carr parts',`<p>Download a component from the McMaster-Carr catalog, then import it into this assembly.</p><ol><li>Find your part and open its product detail page.</li><li>Download an STL file, when available, or convert the STEP file to STL using your preferred CAD tool.</li><li>Choose <strong>Import model</strong> in this workspace.</li></ol><p class="notice">Supported: STL, OBJ, and self-contained GLB. STEP / IGES and native McMaster catalog integration require a CAD kernel and are not implemented yet.</p><a class="catalog-link" href="https://www.mcmaster.com" target="_blank" rel="noopener noreferrer">Open McMaster-Carr ↗</a>`));
-on('help',()=>modal('Make room for your ideas','<p>Drag to orbit, right-drag to pan, and scroll to zoom. Click a component in the canvas or browser to edit its dimensions, position, and appearance.</p><p>Create boxes, cylinders, or extruded rectangular profiles. Import mesh parts and export your assembly as STL. Projects save in this browser; imported meshes are session-only.</p><p class="notice">This is a mesh modeling prototype. Parametric sketches, boolean operations, true assembly constraints, STEP support, and fillets are future work.</p>'));on('timeline-help',()=>document.getElementById('help')!.click());
-document.querySelector<HTMLInputElement>('#file')!.onchange=async e=>{const file=(e.target as HTMLInputElement).files?.[0];if(!file)return;try{const ext=file.name.split('.').pop()?.toLowerCase();const buffer=await file.arrayBuffer();let g:THREE.BufferGeometry;if(ext==='stl')g=new STLLoader().parse(buffer);else{const object=ext==='obj'?new OBJLoader().parse(new TextDecoder().decode(buffer)):(await new GLTFLoader().parseAsync(buffer,'')).scene;object.updateMatrixWorld(true);const geometries:THREE.BufferGeometry[]=[];object.traverse(o=>{if(o instanceof THREE.Mesh){const geom=o.geometry.clone();geom.applyMatrix4(o.matrixWorld);geometries.push(geom)}});if(geometries.length!==1)throw new Error('Import a single mesh per file.');g=geometries[0];}g.computeBoundingBox();g.computeVertexNormals();const size=g.boundingBox!.getSize(new THREE.Vector3());g.center();checkpoint();selected=crypto.randomUUID();parts.push({id:selected,name:file.name,type:'import',dims:[size.x,size.y,size.z],position:[0,size.y/2,0],color:'#a3adb8',visible:true,geometry:g});changed('Import '+file.name);fit();toast('Mesh imported. Keep the original file; imported meshes are session-only.')}catch(err){toast('Import failed: '+(err as Error).message)}(e.target as HTMLInputElement).value='';};
-document.querySelector<HTMLInputElement>('#project-name')!.onchange=e=>{document.querySelector('#tree-title')!.textContent=(e.target as HTMLInputElement).value;persist()};
-document.querySelectorAll<HTMLButtonElement>('[data-mode]').forEach(b=>b.onclick=()=>{document.querySelectorAll('[data-mode]').forEach(t=>t.classList.remove('active'));b.classList.add('active');document.querySelector('#mode-caption')!.textContent=b.dataset.mode==='assembly'?'ASSEMBLY WORKSPACE':'SOLID MODELING'});
-try{const saved=JSON.parse(localStorage.getItem('forma-project')||'null');if(saved&&Array.isArray(saved.parts)){parts=saved.parts;events=saved.events||[];(document.querySelector('#project-name') as HTMLInputElement).value=saved.title||'Untitled assembly';document.querySelector('#tree-title')!.textContent=saved.title}else{parts=initial;events=['Base plate','Upright bracket','Support rib','Socket screw 1','Socket screw 2']}}catch{parts=initial}rebuild();
-new ResizeObserver(()=>{const {width,height}=host.getBoundingClientRect();camera.aspect=width/height;camera.updateProjectionMatrix();renderer.setSize(width,height)}).observe(host);renderer.setAnimationLoop(()=>{controls.update();renderer.render(scene,camera)});
+import * as THREE from "three";
+import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
+import { createIcons, icons } from "lucide";
+import { defaultModel, validateModel, type DocumentModel } from "./model";
+import "./style.css";
+const i = (name: string) => `<i data-lucide="${name}"></i>`;
+const esc = (s: string) =>
+  s.replace(
+    /[&<>"']/g,
+    (c) =>
+      ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[
+        c
+      ]!,
+  );
+let model = defaultModel(),
+  saved = JSON.stringify(model),
+  mode: "sketch" | "solid" = "sketch",
+  selected = "profile",
+  placing = false,
+  busy = false;
+let undo: DocumentModel[] = [],
+  redo: DocumentModel[] = [];
+const app = document.querySelector<HTMLDivElement>("#app")!;
+app.innerHTML = `<header><a class="brand" href="#">${i("layers-3")} forma<span>/</span><small>Part design</small></a><input id="title" aria-label="Project name" maxlength="120" value="Mounting plate"><span class="pill">SOLID CAD · mm</span><span class="header-space"></span><span id="save-state">New project</span><button id="new">${i("file-plus-2")} New</button><button id="open">${i("folder-open")} Open</button><button id="save">${i("save")} Save project</button><button id="export" class="dark">${i("upload")} Export STEP</button></header>
+<nav><span class="workspace">${i("box")} Design</span><button id="sketch-tab" class="active">Sketch</button><button id="solid-tab">Solid</button><span class="header-space"></span><button id="undo" title="Undo">${i("undo-2")}</button><button id="redo" title="Redo">${i("redo-2")}</button><button id="help">${i("circle-help")}</button></nav>
+<div class="toolbar"><div class="toolgroup"><button id="edit-sketch">${i("square-pen")}<span>Edit sketch</span></button><button id="rectangle">${i("rectangle-horizontal")}<span>Rectangle</span></button><button id="circle">${i("circle")}<span>Hole profile</span></button><label>SKETCH</label></div><div class="toolgroup"><button id="extrude">${i("arrow-up-from-line")}<span>Extrude plate</span></button><button id="holes">${i("circle-dashed")}<span>Cut holes</span></button><label>SOLID FEATURES</label></div><div class="toolgroup"><button id="fit">${i("scan")}<span>Fit view</span></button><button id="top">${i("panel-top")}<span>Top view</span></button><button id="stl">${i("download")}<span>Export STL</span></button><label>VIEW & EXPORT</label></div><div class="kernel-indicator"><span id="kernel-dot"></span><div>OpenCascade kernel<small id="kernel-status">Starting geometry engine…</small></div></div></div>
+<main><aside class="browser"><div class="panel-title">MODEL BROWSER</div><div class="document-row">${i("chevron-down")}${i("component")}<strong id="document-name">Mounting plate</strong></div><div class="tree-row muted">${i("chevron-right")}${i("scan")} Origin <span>XY</span></div><div class="tree-row">${i("chevron-down")}${i("folder")} Sketches</div><button class="feature-row" id="profile-row">${i("square-pen")} Sketch 1 <span>XY</span></button><div id="body-tree"></div><div class="browser-note">${i("info")}<p>A real solid, built from editable dimensions. Change a feature to rebuild the part.</p></div><div class="browser-bottom"><span class="green-dot"></span> Local document <span>mm</span></div></aside>
+<section class="viewport"><div class="viewport-heading"><span id="view-title">${i("square-pen")} Sketch 1 · XY plane</span><small id="view-hint">Edit dimensions in the panel. Add circle profiles for through-holes.</small></div><div id="canvas"></div><svg id="sketch" aria-label="Dimensioned sketch"></svg><button id="finish-sketch" class="dark">${i("check")} Finish sketch</button><div class="view-cube"><button id="cube-top">TOP</button><button id="cube-home">ISO</button></div><div class="viewport-bottom"><span id="geometry-status">RECTANGLE PROFILE</span><div><button id="home" title="Isometric view">${i("house")}</button><button id="grid" title="Toggle grid">${i("grid-3x3")}</button><button id="wire" title="Toggle wireframe">${i("box")}</button></div><span id="view-units">XY · mm</span></div><div id="loading">${i("loader-circle")} <span>Starting solid geometry kernel…</span></div></section>
+<aside class="properties"><div class="panel-title">FEATURE PROPERTIES ${i("sliders-horizontal")}</div><div id="inspector"></div><div class="capability-note">PART DESIGN / FIRST WORKFLOW<p>Rectangle → extrusion → through-holes. STEP export preserves the solid. Assemblies and STEP import are not available in this build.</p></div></aside></main>
+<footer><span class="history-label">FEATURE HISTORY</span><div id="timeline"></div><span class="header-space"></span><span id="volume">No solid yet</span></footer><div class="statusbar"><span id="status">Preparing kernel…</span><span id="interaction-hint">Sketch coordinates are measured from the center · Millimeters</span></div><input type="file" id="file" accept=".forma,.json" hidden><dialog id="dialog"></dialog><div id="toast"></div>`;
+const $ = <T extends Element = HTMLElement>(s: string) =>
+  document.querySelector<T>(s)!;
+const refreshIcons = () => createIcons({ icons });
+const worker = new Worker(new URL("./kernel.worker.ts", import.meta.url), {
+  type: "module",
+});
+let seq = 0;
+const requests = new Map<
+  number,
+  { resolve: (v: any) => void; reject: (e: Error) => void }
+>();
+worker.onmessage = ({ data }) => {
+  const r = requests.get(data.id);
+  if (!r) return;
+  requests.delete(data.id);
+  data.ok ? r.resolve(data) : r.reject(Error(data.error));
+};
+worker.onerror = (e) => {
+  for (const r of requests.values())
+    r.reject(Error(e.message || "Geometry worker failed."));
+  requests.clear();
+  $("#kernel-status").textContent = "Kernel failed to load";
+};
+function request(action: string, extra: object = {}): Promise<any> {
+  return new Promise((resolve, reject) => {
+    const id = ++seq;
+    requests.set(id, { resolve, reject });
+    worker.postMessage({ id, action, ...extra });
+  });
+}
+const scene = new THREE.Scene();
+scene.background = new THREE.Color("#f3f5f8");
+const camera = new THREE.PerspectiveCamera(35, 1, 0.1, 10000);
+camera.up.set(0, 0, 1);
+camera.position.set(145, -175, 155);
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+$("#canvas").append(renderer.domElement);
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+scene.add(new THREE.HemisphereLight(0xffffff, 0x8c98a8, 2.6));
+const sun = new THREE.DirectionalLight(0xffffff, 3);
+sun.position.set(70, -90, 160);
+scene.add(sun);
+const fill = new THREE.DirectionalLight(0xffffff, 1.5);
+fill.position.set(-100, 90, 60);
+scene.add(fill);
+const grid = new THREE.GridHelper(1000, 100, 0xc7d1dd, 0xe0e6ed);
+grid.rotateX(Math.PI / 2);
+grid.position.z = -0.1;
+scene.add(grid);
+const solid = new THREE.Group();
+scene.add(solid);
+let wire = false;
+let metrics = { volume: 0, triangles: 0 };
+function clearSolid() {
+  for (const child of [...solid.children]) {
+    solid.remove(child);
+    if (child instanceof THREE.Mesh || child instanceof THREE.LineSegments) {
+      child.geometry.dispose();
+      (child.material as THREE.Material).dispose();
+    }
+  }
+}
+function showSolid(data: any) {
+  clearSolid();
+  if (data.sketch) {
+    metrics = { volume: 0, triangles: 0 };
+    return;
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute(
+    "position",
+    new THREE.Float32BufferAttribute(data.mesh.vertices, 3),
+  );
+  g.setAttribute(
+    "normal",
+    new THREE.Float32BufferAttribute(data.mesh.normals, 3),
+  );
+  g.setIndex(data.mesh.triangles);
+  const mesh = new THREE.Mesh(
+    g,
+    new THREE.MeshStandardMaterial({
+      color: 0x809bb6,
+      roughness: 0.34,
+      metalness: 0.45,
+      wireframe: wire,
+    }),
+  );
+  solid.add(mesh);
+  const eg = new THREE.BufferGeometry();
+  eg.setAttribute("position", new THREE.Float32BufferAttribute(data.lines, 3));
+  solid.add(
+    new THREE.LineSegments(
+      eg,
+      new THREE.LineBasicMaterial({
+        color: 0x324d68,
+        transparent: true,
+        opacity: 0.65,
+      }),
+    ),
+  );
+  metrics = { volume: data.volume, triangles: data.mesh.triangles.length / 3 };
+}
+function setBusy(value: boolean, label = "Rebuilding solid…") {
+  busy = value;
+  $("#loading").classList.toggle("visible", value);
+  $("#loading span").textContent = label;
+  app.classList.toggle("busy", value);
+  document
+    .querySelectorAll<HTMLButtonElement>(
+      ".toolbar button,#export,#save,#open,#new,#undo,#redo,#finish-sketch,nav button",
+    )
+    .forEach((b) => (b.disabled = value));
+}
+function toast(message: string) {
+  $("#toast").textContent = message;
+  $("#toast").classList.add("show");
+  setTimeout(() => $("#toast").classList.remove("show"), 4500);
+}
+function cache() {
+  try {
+    localStorage.setItem("forma-solid-v1", JSON.stringify(model));
+  } catch {
+    toast("Could not save browser recovery data. Download your project.");
+  }
+}
+function dirty() {
+  const changed = JSON.stringify(model) !== saved;
+  $("#save-state").textContent = changed ? "Unsaved changes" : "Project saved";
+  $("#save-state").classList.toggle("dirty", changed);
+  cache();
+}
+async function commit(next: DocumentModel, label: string) {
+  if (busy) return;
+  const previous = structuredClone(model);
+  try {
+    next = validateModel(next);
+    setBusy(true);
+    const data = await request("build", { model: next });
+    undo.push(previous);
+    redo = [];
+    model = next;
+    showSolid(data);
+    dirty();
+    $("#status").textContent = label;
+    render();
+  } catch (e) {
+    toast((e as Error).message);
+    $("#status").textContent = "Feature rejected — previous part kept";
+    render();
+  } finally {
+    setBusy(false);
+  }
+}
+function mutate(fn: (d: DocumentModel) => void, label: string) {
+  const next = structuredClone(model);
+  fn(next);
+  return commit(next, label);
+}
+function setMode(next: typeof mode) {
+  mode = next;
+  placing = false;
+  render();
+}
+function input(label: string, key: string, value: number, step = "1") {
+  return `<label>${label}<div class="unit-input"><input type="number" data-field="${key}" value="${value}" step="${step}" aria-label="${label}"><span>mm</span></div></label>`;
+}
+function render() {
+  $("#title").setAttribute("value", model.name);
+  ($("#title") as HTMLInputElement).value = model.name;
+  $("#document-name").textContent = model.name;
+  $("#sketch-tab").classList.toggle("active", mode === "sketch");
+  $("#solid-tab").classList.toggle("active", mode === "solid");
+  $("#sketch").classList.toggle("visible", mode === "sketch");
+  $("#canvas").classList.toggle("visible", mode === "solid");
+  $("#finish-sketch").classList.toggle("visible", mode === "sketch");
+  $(".view-cube").classList.toggle("visible", mode === "solid");
+  $("#view-title").innerHTML =
+    mode === "sketch"
+      ? `${i("square-pen")} Sketch 1 · XY plane`
+      : `${i("box")} ${esc(model.name)} · Solid body`;
+  $("#view-hint").textContent =
+    mode === "sketch"
+      ? placing
+        ? "Click inside the rectangle to place a hole center. Escape to cancel."
+        : "Dimensioned rectangle · centered on origin · all units in mm"
+      : "Drag to orbit · right-drag to pan · scroll to zoom";
+  $("#geometry-status").textContent = model.extruded
+    ? "1 SOLID BODY · OPENCASCADE B-REP"
+    : "CLOSED RECTANGLE · FULLY DIMENSIONED";
+  $("#volume").textContent = model.extruded
+    ? `${metrics.volume.toLocaleString(undefined, { maximumFractionDigits: 2 })} mm³ · 1 solid`
+    : "No solid yet";
+  $("#view-units").textContent =
+    mode === "sketch" ? "XY · mm" : "Perspective · mm";
+  $("#body-tree").innerHTML = model.extruded
+    ? `<div class="tree-row">${i("chevron-down")}${i("box")} Bodies <span>1</span></div><button class="feature-row" id="body-row">${i("box")} Plate body <span>Solid</span></button>`
+    : "";
+  $("#timeline").innerHTML =
+    `<button data-feature="profile" title="Edit Sketch 1">${i("square-pen")}<span>Sketch 1</span></button>${model.extruded ? `<span class="timeline-connector"></span><button data-feature="extrude">${i("arrow-up-from-line")}<span>Extrude 1</span></button>` : ""}${model.extruded && model.holes.length ? `<span class="timeline-connector"></span><button data-feature="holes">${i("circle-dashed")}<span>Hole cuts (${model.holes.length})</span></button>` : ""}`;
+  const hole = model.holes.find((h) => h.id === selected);
+  $(".properties").scrollTop = 0;
+  $("#inspector").innerHTML = hole
+    ? `<div class="eyebrow">THROUGH-HOLE PROFILE</div><h2>Circle ${model.holes.indexOf(hole) + 1}</h2><p class="description">Diameter and center measured from the sketch origin. Cut through the full plate.</p><div class="property-section"><h3>Dimensions</h3>${input("Diameter", "diameter", hole.diameter, ".5")}${input("Center X", "x", hole.x)}${input("Center Y", "y", hole.y)}</div><button class="remove-hole" id="remove-hole">${i("trash-2")} Remove hole</button>`
+    : selected === "extrude"
+      ? `<div class="eyebrow">SOLID FEATURE</div><h2>Extrude 1</h2><p class="description">Extrude the closed rectangle normal to the XY plane, along +Z.</p><div class="property-section"><h3>Extrusion</h3>${input("Thickness", "thickness", model.thickness, ".5")}<label>Operation<span>New solid</span></label><label>Direction<span>+Z · One side</span></label></div><button class="primary-action" id="apply-extrude">${i("check")} ${model.extruded ? "View solid" : "Create solid"}</button>`
+      : `<div class="eyebrow">PARAMETRIC SKETCH</div><h2>Sketch 1</h2><p class="description">A centered, axis-aligned rectangle with explicit width and depth dimensions.</p><div class="property-section"><h3>Rectangle dimensions</h3>${input("Width", "width", model.width)}${input("Depth", "depth", model.depth)}<label>Plane<span>XY</span></label><label>Constraint<span class="constrained">Fully dimensioned</span></label></div><div class="property-section"><h3>Hole profiles <span>${model.holes.length}</span></h3><div class="hole-list">${model.holes.map((h, n) => `<button data-hole="${h.id}">${i("circle")} Circle ${n + 1}<span>Ø ${h.diameter}</span></button>`).join("") || "<p>No holes. Add a circle to define a through-cut.</p>"}</div><button id="add-hole" class="add-hole">${i("plus")} Add hole</button></div>`;
+  $("#inspector")
+    .querySelectorAll<HTMLInputElement>("[data-field]")
+    .forEach(
+      (el) =>
+        (el.onchange = () => {
+          const field = el.dataset.field!;
+          const value = Number(el.value);
+          if (el.value.trim() === "" || !Number.isFinite(value)) {
+            toast("Enter a finite dimension.");
+            render();
+            return;
+          }
+          void mutate((d) => {
+            const h = d.holes.find((h) => h.id === selected);
+            if (h && ["diameter", "x", "y"].includes(field))
+              (h as any)[field] = value;
+            else (d as any)[field] = value;
+          }, "Feature rebuilt from updated dimensions");
+        }),
+    );
+  $("#body-row")?.addEventListener("click", () => {
+    selected = "extrude";
+    setMode("solid");
+  });
+  $("#apply-extrude")?.addEventListener("click", extrude);
+  $("#remove-hole")?.addEventListener("click", () => {
+    void mutate(
+      (d) => (d.holes = d.holes.filter((h) => h.id !== selected)),
+      "Through-hole removed",
+    ).then(() => {
+      selected = "profile";
+      render();
+    });
+  });
+  $("#add-hole")?.addEventListener("click", startHole);
+  $("#inspector")
+    .querySelectorAll<HTMLElement>("[data-hole]")
+    .forEach(
+      (b) =>
+        (b.onclick = () => {
+          selected = b.dataset.hole!;
+          setMode("sketch");
+        }),
+    );
+  drawSketch();
+  refreshIcons();
+}
+function drawSketch() {
+  const svg = $<SVGSVGElement>("#sketch");
+  const w = Math.max(model.width + 70, 150),
+    h = Math.max(model.depth + 65, 115);
+  svg.setAttribute("viewBox", `${-w / 2} ${-h / 2} ${w} ${h}`);
+  const W = model.width / 2,
+    D = model.depth / 2;
+  const line = (x1: number, y1: number, x2: number, y2: number, cls = "dim") =>
+    `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" class="${cls}"/>`;
+  const f = Math.max(w / 95, 1.8);
+  svg.innerHTML = `<defs><pattern id="dots" width="10" height="10" patternUnits="userSpaceOnUse"><circle cx="0" cy="0" r=".18" fill="#b9c8d8"/></pattern></defs><rect x="${-w / 2}" y="${-h / 2}" width="${w}" height="${h}" fill="url(#dots)"/>${line(-w / 2, 0, w / 2, 0, "x-axis")}${line(0, -h / 2, 0, h / 2, "y-axis")}<path d="M ${-W} ${-D} H ${W} V ${D} H ${-W} Z ${model.holes.map((h) => `M ${h.x - h.diameter / 2} ${-h.y} a ${h.diameter / 2} ${h.diameter / 2} 0 1 0 ${h.diameter} 0 a ${h.diameter / 2} ${h.diameter / 2} 0 1 0 ${-h.diameter} 0`).join(" ")}" fill-rule="evenodd" class="profile"/>${[-W, W].flatMap((x) => [-D, D].map((y) => `<rect x="${x - 0.65}" y="${y - 0.65}" width="1.3" height="1.3" class="corner"/>`)).join("")}${line(-W, -D - 8, W, -D - 8)}${line(-W, -D - 2, -W, -D - 11)}${line(W, -D - 2, W, -D - 11)}<text x="0" y="${-D - 10}" text-anchor="middle" style="font-size:${f}px" data-dimension="width">${model.width} mm</text>${line(W + 8, -D, W + 8, D)}${line(W + 2, -D, W + 11, -D)}${line(W + 2, D, W + 11, D)}<text x="${W + 11}" y="0" style="font-size:${f}px" data-dimension="depth">${model.depth} mm</text>${model.holes.map((h, n) => `<g data-sketch-hole="${h.id}" class="sketch-hole ${h.id === selected ? "selected" : ""}"><circle cx="${h.x}" cy="${-h.y}" r="${h.diameter / 2}"/><path d="M ${h.x - 2} ${-h.y} h 4 M ${h.x} ${-h.y - 2} v 4"/><text x="${h.x + h.diameter / 2 + 1.5}" y="${-h.y - 2}" style="font-size:${f * 0.85}px">Ø${h.diameter} · ${n + 1}</text></g>`).join("")}<circle cx="0" cy="0" r=".8" class="origin"/><text x="2" y="4" class="origin-text" style="font-size:${f * 0.8}px">0, 0</text>`;
+  svg.classList.toggle("placing", placing);
+}
+function startHole() {
+  if (busy) return;
+  setMode("sketch");
+  placing = true;
+  $("#view-hint").textContent =
+    "Click inside the rectangle to place a hole center. Escape to cancel.";
+  drawSketch();
+}
+$<SVGSVGElement>("#sketch").addEventListener("click", (e) => {
+  if (busy) return;
+  const target = e.target as Element;
+  const hole = target.closest<SVGElement>("[data-sketch-hole]");
+  if (hole && !placing) {
+    selected = hole.dataset.sketchHole!;
+    render();
+    return;
+  }
+  const dim = target.closest<SVGElement>("[data-dimension]");
+  if (dim && !placing) {
+    selected = "profile";
+    render();
+    $<HTMLInputElement>(`[data-field="${dim.dataset.dimension}"]`).focus();
+    return;
+  }
+  if (!placing) return;
+  const svg = $<SVGSVGElement>("#sketch");
+  const point = new DOMPoint(e.clientX, e.clientY).matrixTransform(
+    svg.getScreenCTM()!.inverse(),
+  );
+  const id = crypto.randomUUID();
+  const x = Math.round(point.x * 2) / 2,
+    y = -Math.round(point.y * 2) / 2;
+  void mutate(
+    (d) => d.holes.push({ id, x, y, diameter: 6 }),
+    "Circle profile added",
+  ).then(() => {
+    if (model.holes.some((h) => h.id === id)) {
+      placing = false;
+      selected = id;
+      render();
+    }
+  });
+});
+async function extrude() {
+  if (busy) return;
+  selected = "extrude";
+  if (!model.extruded)
+    await mutate(
+      (d) => (d.extruded = true),
+      "Extruded one solid with through-hole cuts",
+    );
+  if (model.extruded) {
+    setMode("solid");
+    fit();
+  } else render();
+}
+function fit() {
+  const size = Math.max(model.width, model.depth, model.thickness) * 2.2;
+  controls.target.set(0, 0, model.thickness / 2);
+  camera.position
+    .copy(controls.target)
+    .add(new THREE.Vector3(0.75, -1, 0.85).normalize().multiplyScalar(size));
+  camera.updateProjectionMatrix();
+  controls.update();
+}
+function top() {
+  if (mode === "sketch") return;
+  controls.target.set(0, 0, model.thickness / 2);
+  camera.position.set(0, -0.001, Math.max(model.width, model.depth) * 2.5);
+  controls.update();
+}
+function download(blob: Blob, name: string) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = name;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 2000);
+}
+function filename() {
+  return model.name.replace(/[^\w -]/g, "").trim() || "part";
+}
+async function exportSolid(kind: "step" | "stl") {
+  if (!model.extruded) {
+    toast("Extrude the sketch before exporting.");
+    return;
+  }
+  if (busy) return;
+  try {
+    setBusy(true, "Exporting solid…");
+    const result = await request("export", { kind });
+    download(result.blob, filename() + "." + kind);
+    $("#status").textContent =
+      `Exported ${kind.toUpperCase()} from the CAD solid`;
+  } catch (e) {
+    toast((e as Error).message);
+  } finally {
+    setBusy(false);
+  }
+}
+function modal(title: string, body: string, accept?: () => void) {
+  const d = $<HTMLDialogElement>("#dialog");
+  d.innerHTML = `<form method="dialog"><div class="dialog-heading"><h2>${title}</h2><button>${i("x")}</button></div>${body}<div class="dialog-footer"><button class="secondary">${accept ? "Cancel" : "Close"}</button>${accept ? '<button type="button" class="dark" id="confirm">Continue</button>' : ""}</div></form>`;
+  refreshIcons();
+  d.showModal();
+  $("#confirm")?.addEventListener("click", () => {
+    d.close();
+    accept?.();
+  });
+}
+function confirmDiscard(fn: () => void) {
+  if (JSON.stringify(model) !== saved)
+    modal(
+      "Unsaved project",
+      "<p>Save your project first to keep a copy. Continuing will replace the current document.</p>",
+      fn,
+    );
+  else fn();
+}
+async function replace(next: DocumentModel) {
+  if (busy) return;
+  try {
+    next = validateModel(next);
+    setBusy(true);
+    const data = await request("build", { model: next });
+    model = next;
+    undo = [];
+    redo = [];
+    selected = "profile";
+    saved = JSON.stringify(model);
+    showSolid(data);
+    dirty();
+    setMode(model.extruded ? "solid" : "sketch");
+    fit();
+    $("#status").textContent =
+      "Project opened and rebuilt from editable features";
+  } catch (e) {
+    toast((e as Error).message);
+  } finally {
+    setBusy(false);
+  }
+}
+const on = (id: string, fn: () => void) =>
+  $("#" + id).addEventListener("click", fn);
+on("edit-sketch", () => {
+  selected = "profile";
+  setMode("sketch");
+});
+on("rectangle", () => {
+  selected = "profile";
+  setMode("sketch");
+  $<HTMLInputElement>('[data-field="width"]').focus();
+});
+on("circle", startHole);
+on("extrude", () => {
+  selected = "extrude";
+  render();
+});
+on("holes", () => {
+  selected = "profile";
+  setMode("sketch");
+  toast(
+    "Add circle profiles, then finish the sketch. Existing solids rebuild with through-cuts.",
+  );
+});
+on("finish-sketch", () => {
+  void extrude();
+});
+on("profile-row", () => {
+  selected = "profile";
+  setMode("sketch");
+});
+on("sketch-tab", () => setMode("sketch"));
+on("solid-tab", () => {
+  if (!model.extruded) {
+    selected = "extrude";
+    render();
+    toast("Create the extrusion to enter solid view.");
+  } else setMode("solid");
+});
+on("home", () => {
+  if (model.extruded) setMode("solid");
+  fit();
+});
+on("cube-home", fit);
+on("cube-top", top);
+on("fit", fit);
+on("top", top);
+on("grid", () => (grid.visible = !grid.visible));
+on("wire", () => {
+  wire = !wire;
+  solid.children.forEach((c) => {
+    if (c instanceof THREE.Mesh)
+      (c.material as THREE.MeshStandardMaterial).wireframe = wire;
+  });
+});
+on("export", () => void exportSolid("step"));
+on("stl", () => void exportSolid("stl"));
+on("save", () => {
+  if (busy) return;
+  download(
+    new Blob([JSON.stringify(model, null, 2)], { type: "application/json" }),
+    filename() + ".forma",
+  );
+  saved = JSON.stringify(model);
+  dirty();
+  $("#status").textContent = "Editable project downloaded";
+});
+on("new", () => confirmDiscard(() => void replace(defaultModel())));
+on("open", () => confirmDiscard(() => $<HTMLInputElement>("#file").click()));
+$<HTMLInputElement>("#file").onchange = async (e) => {
+  const input = e.target as HTMLInputElement;
+  const f = input.files?.[0];
+  if (!f) return;
+  try {
+    if (f.size > 1_000_000) throw Error("Project file is too large.");
+    await replace(validateModel(JSON.parse(await f.text())));
+  } catch (err) {
+    toast((err as Error).message);
+  }
+  input.value = "";
+};
+$<HTMLInputElement>("#title").onchange = (e) => {
+  const name = (e.target as HTMLInputElement).value.trim();
+  if (!name) {
+    render();
+    return;
+  }
+  void mutate((d) => (d.name = name), "Project renamed");
+};
+$("#timeline").addEventListener("click", (e) => {
+  const feature = (e.target as Element).closest<HTMLElement>("[data-feature]")
+    ?.dataset.feature;
+  if (feature) {
+    selected = feature === "holes" ? "profile" : feature;
+    setMode(feature === "extrude" ? "solid" : "sketch");
+  }
+});
+async function travel(from: DocumentModel[], to: DocumentModel[]) {
+  if (busy || !from.length) return;
+  try {
+    const next = from[from.length - 1];
+    setBusy(true);
+    const data = await request("build", { model: next });
+    to.push(structuredClone(model));
+    from.pop();
+    model = structuredClone(next);
+    selected = "profile";
+    showSolid(data);
+    if (!model.extruded) mode = "sketch";
+    dirty();
+    render();
+    $("#status").textContent = "Feature history rebuilt";
+  } catch (e) {
+    toast((e as Error).message);
+  } finally {
+    setBusy(false);
+  }
+}
+on("undo", () => void travel(undo, redo));
+on("redo", () => void travel(redo, undo));
+on("help", () =>
+  modal(
+    "Solid part design",
+    "<p>1. Set the rectangle width and depth.<br>2. Finish sketch and set the extrusion thickness.<br>3. Edit Sketch 1, choose Hole profile, and click to place a circle.<br>4. Edit its diameter and center coordinates. The kernel cuts it through the plate.</p><p>Save project downloads an editable .forma file. Open rebuilds that file from its dimensions. STEP exports the actual boundary-representation solid; STL exports its tessellation.</p><p>This build supports one rectangular part with circular through-holes. Freeform sketch constraints, fillets, assemblies, and STEP import remain future work.</p>",
+  ),
+);
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") {
+    placing = false;
+    render();
+  }
+  if ((e.ctrlKey || e.metaKey) && e.key === "s") {
+    e.preventDefault();
+    if (!busy) $("#save").click();
+  }
+  if (
+    (e.ctrlKey || e.metaKey) &&
+    e.key === "z" &&
+    !(e.target instanceof HTMLInputElement)
+  ) {
+    e.preventDefault();
+    void travel(e.shiftKey ? redo : undo, e.shiftKey ? undo : redo);
+  }
+});
+window.addEventListener("beforeunload", (e) => {
+  if (JSON.stringify(model) !== saved) {
+    e.preventDefault();
+    e.returnValue = "";
+  }
+});
+new ResizeObserver(() => {
+  const r = $("#canvas").getBoundingClientRect();
+  if (r.width && r.height) {
+    camera.aspect = r.width / r.height;
+    camera.updateProjectionMatrix();
+    renderer.setSize(r.width, r.height);
+  }
+}).observe($(".viewport"));
+renderer.setAnimationLoop(() => {
+  controls.update();
+  renderer.render(scene, camera);
+});
+render();
+setBusy(true, "Loading OpenCascade geometry kernel…");
+request("init")
+  .then(async () => {
+    $("#kernel-dot").classList.add("ready");
+    $("#kernel-status").textContent =
+      "Ready · real boundary-representation solids";
+    $("#status").textContent = "Kernel ready · create a dimensioned sketch";
+    try {
+      const recovery = localStorage.getItem("forma-solid-v1");
+      if (recovery) {
+        const d = validateModel(JSON.parse(recovery));
+        setBusy(false);
+        await replace(d);
+        $("#save-state").textContent = "Recovered from browser";
+      }
+    } catch {
+      toast("Recovery data was invalid. Starting a new part.");
+    } finally {
+      setBusy(false);
+    }
+  })
+  .catch((e) => {
+    setBusy(false);
+    $("#kernel-status").textContent = "Failed to load";
+    $("#status").textContent = "Kernel unavailable";
+    toast((e as Error).message);
+  });
