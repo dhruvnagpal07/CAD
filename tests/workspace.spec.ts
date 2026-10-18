@@ -1,0 +1,38 @@
+import { test, expect } from '@playwright/test';
+test('model editing, undo, profile extrusion, and import guidance', async ({page})=>{
+ const errors:string[]=[];page.on('pageerror',e=>errors.push(e.message));
+ await page.goto('/');
+ await expect(page.locator('#parts .part')).toHaveCount(5);
+ await expect(page.locator('canvas')).toBeVisible();
+ await page.locator('[data-action="box"]').first().click();
+ await expect(page.locator('#parts .part')).toHaveCount(6);
+ await page.locator('[data-dim="0"]').fill('65');
+ await page.locator('[data-dim="0"]').press('Tab');
+ await expect(page.locator('[data-dim="0"]')).toHaveValue('65');
+ await page.locator('#undo').click();
+ await page.locator('#parts .part').last().click();
+ await expect(page.locator('[data-dim="0"]')).toHaveValue('40');
+ await page.locator('[data-action="sketch"]').click();
+ await page.locator('#sk-width').fill('80');
+ await page.locator('#dialog-action').click();
+ await expect(page.locator('#parts .part')).toHaveCount(7);
+ await expect(page.locator('[data-dim="0"]')).toHaveValue('80');
+ await page.reload();await expect(page.locator('#parts .part')).toHaveCount(7);
+ await page.locator('#mcmaster').click();await expect(page.locator('dialog')).toContainText('STEP / IGES');
+ await page.screenshot({path:'/tmp/forma-workspace.png',fullPage:true});
+ expect(errors).toEqual([]);
+});
+test('imports a mesh, moves it, preserves it through undo, and exports STL',async({page})=>{
+ await page.goto('/');
+ const stl='solid triangle\nfacet normal 0 0 1\nouter loop\nvertex 0 0 0\nvertex 10 0 0\nvertex 0 10 0\nendloop\nendfacet\nendsolid triangle';
+ await page.locator('#file').setInputFiles({name:'part.stl',mimeType:'model/stl',buffer:Buffer.from(stl)});
+ await expect(page.locator('#parts .part')).toHaveCount(6);
+ await expect(page.locator('#part-name')).toHaveValue('part.stl');
+ await page.locator('[data-pos="0"]').fill('25');await page.locator('[data-pos="0"]').press('Tab');
+ await expect(page.locator('[data-pos="0"]')).toHaveValue('25');
+ await page.locator('#undo').click();await page.locator('#parts .part').last().click();
+ await expect(page.locator('[data-pos="0"]')).toHaveValue('0');
+ const downloadPromise=page.waitForEvent('download');await page.locator('#export').click();
+ const download=await downloadPromise;expect(download.suggestedFilename()).toBe('forma-assembly.stl');expect(await download.failure()).toBeNull();
+ await page.locator('#parts .part').first().click();await page.screenshot({path:'/tmp/forma-main.png',fullPage:true});
+});
